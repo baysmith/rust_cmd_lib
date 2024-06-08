@@ -1,7 +1,7 @@
 use crate::builtins::*;
 use crate::child::{CmdChild, CmdChildHandle, CmdChildren, FunChildren};
 use crate::io::{CmdIn, CmdOut};
-use crate::{debug, warn};
+use crate::{debug, info, warn};
 use crate::{CmdResult, FunResult};
 use faccess::{AccessMode, PathExt};
 use lazy_static::lazy_static;
@@ -102,12 +102,34 @@ pub fn set_pipefail(enable: bool) {
     std::env::set_var("CMD_LIB_PIPEFAIL", if enable { "1" } else { "0" });
 }
 
+/// Set log command mode or not, false by default.
+///
+/// Setting environment variable CMD_LIB_LOG_CMD=0|1 has the same effect
+pub fn set_log_cmd(enable: bool) {
+    std::env::set_var("CMD_LIB_LOG_CMD", if enable { "1" } else { "0" });
+}
+
+/// Set dry-run mode or not, false by default.
+///
+/// Setting environment variable CMD_LIB_DRY_RUN=0|1 has the same effect
+pub fn set_dry_run(enable: bool) {
+    std::env::set_var("CMD_LIB_DRY_RUN", if enable { "1" } else { "0" });
+}
+
 pub(crate) fn debug_enabled() -> bool {
     std::env::var("CMD_LIB_DEBUG") == Ok("1".into())
 }
 
 pub(crate) fn pipefail_enabled() -> bool {
     std::env::var("CMD_LIB_PIPEFAIL") != Ok("0".into())
+}
+
+pub(crate) fn log_cmd_enabled() -> bool {
+    std::env::var("CMD_LIB_LOG_CMD") == Ok("1".into())
+}
+
+pub(crate) fn dry_run_enabled() -> bool {
+    std::env::var("CMD_LIB_DRY_RUN") == Ok("1".into())
 }
 
 #[doc(hidden)]
@@ -198,6 +220,9 @@ impl Cmds {
         let line = self.line;
         if debug_enabled() {
             debug!("Running [{full_cmds}] at {file}:{line} ...");
+        }
+        if log_cmd_enabled() {
+            info!("Running [{full_cmds}]");
         }
 
         // spawning all the sub-processes
@@ -393,6 +418,16 @@ impl Cmd {
     }
 
     fn spawn(mut self, current_dir: &mut PathBuf, with_output: bool) -> Result<CmdChild> {
+        if dry_run_enabled() {
+            return Ok(CmdChild::new(
+                CmdChildHandle::SyncFn,
+                self.cmd_str(),
+                self.file,
+                self.line,
+                self.stdout_logging,
+                self.stderr_logging,
+            ));
+        }
         let arg0 = self.arg0();
         if arg0 == CD_CMD {
             self.run_cd_cmd(current_dir, &self.file, self.line)?;
