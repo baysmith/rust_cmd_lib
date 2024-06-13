@@ -221,9 +221,6 @@ impl Cmds {
         if debug_enabled() {
             debug!("Running [{full_cmds}] at {file}:{line} ...");
         }
-        if log_cmd_enabled() {
-            info!("Running [{full_cmds}]");
-        }
 
         // spawning all the sub-processes
         let mut children: Vec<CmdChild> = Vec::new();
@@ -231,6 +228,26 @@ impl Cmds {
         let mut prev_pipe_in = None;
         for (i, cmd_opt) in self.cmds.iter_mut().enumerate() {
             let mut cmd = cmd_opt.take().unwrap();
+            let skip_cmd = dry_run_enabled() && !cmd.in_cmd_map;
+            if log_cmd_enabled() && !cmd.in_cmd_map {
+                let cmd_str = cmd.cmd_str();
+                if skip_cmd {
+                    info!("Would run [{cmd_str}]");
+                } else {
+                    info!("Running [{cmd_str}]");
+                }
+            }
+            if skip_cmd {
+                children.push(CmdChild::new(
+                    CmdChildHandle::SyncFn,
+                    cmd.cmd_str(),
+                    cmd.file,
+                    cmd.line,
+                    cmd.stdout_logging,
+                    cmd.stderr_logging,
+                ));
+                continue;
+            }
             if i != len - 1 {
                 // not the last, update redirects
                 let (pipe_reader, pipe_writer) =
@@ -418,16 +435,6 @@ impl Cmd {
     }
 
     fn spawn(mut self, current_dir: &mut PathBuf, with_output: bool) -> Result<CmdChild> {
-        if dry_run_enabled() {
-            return Ok(CmdChild::new(
-                CmdChildHandle::SyncFn,
-                self.cmd_str(),
-                self.file,
-                self.line,
-                self.stdout_logging,
-                self.stderr_logging,
-            ));
-        }
         let arg0 = self.arg0();
         if arg0 == CD_CMD {
             self.run_cd_cmd(current_dir, &self.file, self.line)?;
